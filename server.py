@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-KMSAN Crash Portal — minimal HTTP server, no external dependencies.
+Crash Portal — minimal HTTP server, no external dependencies.
 Usage: python3 server.py [port]   (default port: 8765)
 """
 
@@ -59,16 +59,29 @@ def import_workdir(workdir: str) -> list:
         has_cprog = (d / "repro.cprog").exists()
         has_prog = (d / "repro.prog").exists()
         has_repro0 = any(d.glob("repro[0-9]*"))
-        if has_cprog and has_prog:
-            repro = "prog+C"
-        elif has_prog:
-            repro = "prog"
-        elif has_cprog:
+        if has_cprog:
             repro = "C"
-        elif has_repro0:
-            repro = "repro0"
+        elif has_prog or has_repro0:
+            repro = "syz"
         else:
             repro = "none"
+
+        # Read ctag: parse syzkaller and kernel hashes
+        syzkaller_ctag = ""
+        kernel_ctag = ""
+        kernel_git_ctag = ""
+        for ctag_name in sorted(d.glob("ctag[0-9]*")):
+            try:
+                for line in ctag_name.read_text().strip().splitlines():
+                    if line.startswith("syzkaller-") and not syzkaller_ctag:
+                        syzkaller_ctag = line[len("syzkaller-"):]
+                    elif line.startswith("linux-") and not kernel_ctag:
+                        kernel_ctag = line[len("linux-"):]
+                    elif line.startswith("git-") and not kernel_git_ctag:
+                        kernel_git_ctag = line[len("git-"):]
+            except OSError:
+                pass
+            break  # first ctag file is enough
 
         # Read first lines of report0 for the call stack hint
         note = ""
@@ -97,6 +110,9 @@ def import_workdir(workdir: str) -> list:
             "description": desc,
             "subsystem": "",
             "repro": repro,
+            "syzkaller_ctag": syzkaller_ctag,
+            "kernel_ctag": kernel_ctag,
+            "kernel_git_ctag": kernel_git_ctag,
             "status_510": "?",
             "status_61": "?",
             "status_612": "?",
@@ -187,9 +203,13 @@ class Handler(BaseHTTPRequestHandler):
             crashes = load()
             for i, c in enumerate(crashes):
                 if c["id"] == cid:
-                    body["id"] = cid
-                    body.setdefault("added", c.get("added", int(time.time())))
-                    crashes[i] = body
+                    # Merge: keep any fields in the stored record that the
+                    # client didn't send (e.g. syzkaller_ctag, kernel_ctag).
+                    merged = {**c, **body}
+                    merged["id"] = cid
+                    merged.setdefault("added", c.get("added", int(time.time())))
+                    crashes[i] = merged
+                    body = merged
                     save(crashes)
                     self.send_json(200, body)
                     return
@@ -216,7 +236,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
     server = HTTPServer(("127.0.0.1", port), Handler)
-    print(f"KMSAN Portal: http://127.0.0.1:{port}/")
+    print(f"Crash Portal: http://127.0.0.1:{port}/")
     print("Ctrl+C to stop.")
     try:
         server.serve_forever()

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>KMSAN Crash Portal</title>
+<title>Crash Portal</title>
 <style>
 :root {
   --bg:       #f7f6f4;
@@ -20,7 +20,6 @@
   --c-bad:     #c0392b; --c-bad-bg:     #fdecea;
   --c-pend:    #2563eb; --c-pend-bg:    #eff4ff;
   --c-na:      #6b6760; --c-na-bg:      #f0ede8;
-  --c-ideco:   #7c3aed; --c-ideco-bg:   #f4f0ff;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -33,7 +32,6 @@
     --c-bad:     #f87171; --c-bad-bg:     #2a0f0f;
     --c-pend:    #93c5fd; --c-pend-bg:    #0d1a30;
     --c-na:      #8a857d; --c-na-bg:      #262320;
-    --c-ideco:   #c4b5fd; --c-ideco-bg:   #1a1030;
   }
 }
 
@@ -103,12 +101,20 @@ tr:hover td { background: var(--bg-head); }
 .b-bad     { color: var(--c-bad);     background: var(--c-bad-bg); }
 .b-pend    { color: var(--c-pend);    background: var(--c-pend-bg); }
 .b-na      { color: var(--c-na);      background: var(--c-na-bg); }
-.b-ideco   { color: var(--c-ideco);   background: var(--c-ideco-bg); }
 .b-q       { color: var(--fg-m);      background: var(--bg-head); }
 
-.repro-yes  { color: var(--c-fixed);   background: var(--c-fixed-bg); }
-.repro-no   { color: var(--c-na);      background: var(--c-na-bg); }
-.repro-part { color: var(--c-partial); background: var(--c-partial-bg); }
+/* repro inline select */
+.repro-sel {
+  font: inherit; font-size: 11px; font-weight: 500;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg-head); color: var(--fg-m);
+  padding: 2px 4px; cursor: pointer; max-width: 70px;
+}
+.repro-sel.has-repro { color: var(--c-fixed); background: var(--c-fixed-bg); border-color: transparent; }
+.repro-sel.no-repro  { color: var(--c-na);    background: var(--c-na-bg);    border-color: transparent; }
+
+/* ctag line under crash name */
+.crash-ctag { font-family: monospace; font-size: 10px; color: var(--fg-m); margin-top: 2px; }
 
 /* ── summary pills ── */
 .summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -154,7 +160,7 @@ textarea { resize: vertical; min-height: 60px; }
 <body>
 
 <header>
-  <h1>KMSAN Crash Portal &nbsp;<em>linux-lvc</em></h1>
+  <h1>Crash Portal &nbsp;<em>linux-lvc</em></h1>
   <div class="hbar">
     <button onclick="openImport()">⬆ Импорт из workdir</button>
     <button class="btn-primary" onclick="openAdd()">+ Добавить</button>
@@ -211,10 +217,8 @@ textarea { resize: vertical; min-height: 60px; }
       <label>Репродюсер</label>
       <select id="f-repro">
         <option value="none">нет</option>
-        <option value="repro0">repro0 (в процессе)</option>
-        <option value="prog">prog (syz)</option>
-        <option value="C">C-репро</option>
-        <option value="prog+C">prog + C</option>
+        <option value="syz">Syz</option>
+        <option value="C">C</option>
       </select>
     </div>
     <div>
@@ -280,25 +284,43 @@ const STATUS_MAP = {
   backport:['b-pend',    '→ бэкпорт'],
   bad:     ['b-bad',     '✗'],
   na:      ['b-na',      'N/A'],
-  ideco:   ['b-ideco',   'Ideco'],
+  ideco:   ['b-na',      'Ideco'],
   '?':     ['b-q',       '?'],
-};
-
-const REPRO_MAP = {
-  'prog+C': ['repro-yes',  'prog+C'],
-  prog:     ['repro-yes',  'prog'],
-  C:        ['repro-yes',  'C'],
-  repro0:   ['repro-part', 'repro0'],
-  none:     ['repro-no',   'нет'],
 };
 
 function badge(status) {
   const [cls, label] = STATUS_MAP[status] || STATUS_MAP['?'];
   return `<span class="badge ${cls}">${label}</span>`;
 }
-function reproBadge(r) {
-  const [cls, label] = REPRO_MAP[r] || REPRO_MAP['none'];
-  return `<span class="badge ${cls}">${label}</span>`;
+
+function reproSel(c) {
+  const r = c.repro || 'none';
+  const cls = (r === 'none') ? 'no-repro' : 'has-repro';
+  return `<select class="repro-sel ${cls}" data-id="${c.id}" onchange="updateRepro(this)">
+    <option value="none" ${r==='none'?'selected':''}>нет</option>
+    <option value="syz"  ${r==='syz' ?'selected':''}>Syz</option>
+    <option value="C"    ${r==='C'   ?'selected':''}>C</option>
+  </select>`;
+}
+
+function crashCtag(c) {
+  const parts = [];
+  if (c.syzkaller_ctag) parts.push('syz:' + c.syzkaller_ctag.slice(0, 8));
+  if (c.kernel_ctag)    parts.push('ker:' + c.kernel_ctag.slice(0, 8));
+  if (c.kernel_git_ctag) parts.push('git:' + c.kernel_git_ctag.slice(0, 8));
+  return parts.length ? `<div class="crash-ctag">${parts.join(' · ')}</div>` : '';
+}
+
+async function updateRepro(sel) {
+  const id = sel.dataset.id;
+  const c = crashes.find(x => x.id === id);
+  if (!c) return;
+  c.repro = sel.value;
+  sel.className = 'repro-sel ' + (sel.value === 'none' ? 'no-repro' : 'has-repro');
+  await fetch(`${API}/api/crashes/${id}`, {method:'PUT',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(c)});
+  toast('Репро обновлено');
+  renderSummary();
 }
 
 async function fetchCrashes() {
@@ -309,21 +331,21 @@ async function fetchCrashes() {
 }
 
 function renderSummary() {
-  const counts = { fixed: 0, backport: 0, bad: 0, ideco: 0, '?': 0 };
+  const counts = { fixed: 0, backport: 0, bad: 0, '?': 0, repro: 0 };
   crashes.forEach(c => {
     const s612 = c.status_612 || '?';
     if (s612 === 'fixed') counts.fixed++;
     else if (s612 === 'backport' || s612 === 'partial') counts.backport++;
-    else if (s612 === 'bad') counts.bad++;
-    else if (s612 === 'ideco') counts.ideco++;
+    else if (s612 === 'bad' || s612 === 'ideco') counts.bad++;
     else counts['?']++;
+    if (c.repro === 'syz' || c.repro === 'C') counts.repro++;
   });
   const total = crashes.length;
   document.getElementById('summary').innerHTML = `
     <span class="sum-pill"><span style="color:var(--c-fixed)">${counts.fixed}</span> исправлено в 6.12</span>
     <span class="sum-pill"><span style="color:var(--c-pend)">${counts.backport}</span> нужен бэкпорт</span>
     <span class="sum-pill"><span style="color:var(--c-bad)">${counts.bad}</span> не исправлено</span>
-    <span class="sum-pill"><span style="color:var(--c-ideco)">${counts.ideco}</span> Ideco</span>
+    <span class="sum-pill"><span style="color:var(--c-fixed)">${counts.repro}</span> есть репро</span>
     <span class="sum-pill"><span style="color:var(--fg-m)">${counts['?']}</span> неизвестно</span>
     <span class="sum-pill"><span style="color:var(--fg-m)">${total}</span> всего</span>
   `;
@@ -341,7 +363,7 @@ function render() {
 
   let rows = crashes.filter(c => {
     if (q && !(c.description + ' ' + c.subsystem + ' ' + c.note).toLowerCase().includes(q)) return false;
-    if (filter === 'repro') return c.repro && c.repro !== 'none';
+    if (filter === 'repro') return c.repro === 'syz' || c.repro === 'C';
     if (filter === 'unfixed') return c.status_612 === 'bad';
     if (filter === 'needs-work') return ['bad', 'backport', '?'].includes(c.status_612);
     return true;
@@ -357,9 +379,10 @@ function render() {
       <td>
         <div class="crash-name">${esc(c.description)}</div>
         ${c.hash ? `<div class="crash-hash">${c.hash.slice(0,12)}</div>` : ''}
+        ${crashCtag(c)}
       </td>
       <td style="font-size:12px;white-space:nowrap">${esc(c.subsystem||'')}</td>
-      <td>${reproBadge(c.repro||'none')}</td>
+      <td>${reproSel(c)}</td>
       <td>${badge(c.status_510||'?')}</td>
       <td>${badge(c.status_61||'?')}</td>
       <td>${badge(c.status_612||'?')}</td>
@@ -393,7 +416,8 @@ function openEdit(id) {
   document.getElementById('editSubmitBtn').textContent = 'Сохранить';
   document.getElementById('f-desc').value  = c.description || '';
   document.getElementById('f-sub').value   = c.subsystem   || '';
-  document.getElementById('f-repro').value = c.repro       || 'none';
+  const rmap = {'repro0':'syz','prog':'syz','prog+C':'C'};
+  document.getElementById('f-repro').value = rmap[c.repro] || c.repro || 'none';
   document.getElementById('f-510').value   = c.status_510  || '?';
   document.getElementById('f-61').value    = c.status_61   || '?';
   document.getElementById('f-612').value   = c.status_612  || '?';

@@ -1,7 +1,7 @@
-# KMSAN Crash Portal
+# Crash Portal
 
-Minimal local web portal for tracking KMSAN kernel crashes across stable branches.
-No external dependencies — Python 3 stdlib only.
+Minimal local web portal for tracking kernel crashes across stable branches.
+No external dependencies Python 3 stdlib only. Use crashes.json as database.
 
 ## Usage
 
