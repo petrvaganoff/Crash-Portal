@@ -1,0 +1,26 @@
+[
+  {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "hash": "091c5c48bff4ef6f9fdeebc06150446f3bebf888",
+    "description": "WARNING in cfg802154_switch_netns",
+    "subsystem": "net/ieee802154",
+    "repro": "repro0",
+    "status_510": "fixed",
+    "status_61": "fixed",
+    "status_612": "fixed",
+    "note": "0569f67ed6a7 ieee802154: Avoid calling WARN_ON() on -ENOMEM",
+    "added": 1730000000
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000002",
+    "hash": "2434959681d4e244052e290ede9fc741f8809ea7",
+    "description": "KMSAN: uninit-value in ieee802154_hdr_push",
+    "subsystem": "net/ieee802154",
+    "repro": "prog+C",
+    "status_510": "bad",
+    "status_61": "bad",
+    "status_612": "bad",
+    "note": "Open on syzbot since 2024, no upstream fix",
+    "added": 1730000000
+  }
+]

@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KMSAN Crash Portal</title>
+<style>
+:root {
+  --bg:       #f7f6f4;
+  --bg-card:  #ffffff;
+  --bg-head:  #f0ede8;
+  --fg:       #1a1917;
+  --fg-m:     #6b6760;
+  --border:   #ddd9d2;
+  --accent:   #c05a1f;
+  --radius:   6px;
+
+  --c-fixed:   #1b7a40; --c-fixed-bg:   #e8f5ed;
+  --c-partial: #9a6b00; --c-partial-bg: #fef6e0;
+  --c-bad:     #c0392b; --c-bad-bg:     #fdecea;
+  --c-pend:    #2563eb; --c-pend-bg:    #eff4ff;
+  --c-na:      #6b6760; --c-na-bg:      #f0ede8;
+  --c-ideco:   #7c3aed; --c-ideco-bg:   #f4f0ff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:      #141311; --bg-card: #1e1c1a; --bg-head: #262320;
+    --fg:      #e8e5e0; --fg-m:   #8a857d; --border:  #33302c;
+    --accent:  #e07040;
+    color-scheme: dark;
+    --c-fixed:   #4ade80; --c-fixed-bg:   #0d2a1a;
+    --c-partial: #fbbf24; --c-partial-bg: #1f1800;
+    --c-bad:     #f87171; --c-bad-bg:     #2a0f0f;
+    --c-pend:    #93c5fd; --c-pend-bg:    #0d1a30;
+    --c-na:      #8a857d; --c-na-bg:      #262320;
+    --c-ideco:   #c4b5fd; --c-ideco-bg:   #1a1030;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 14px/1.5 system-ui, sans-serif; }
+
+/* ── header ── */
+header {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--bg-card); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 8px 16px; padding: 10px 16px;
+}
+header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+header h1 em { color: var(--accent); font-style: normal; font-family: monospace; font-size: 13px; }
+.hbar { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ── buttons ── */
+button, .btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border-radius: var(--radius); cursor: pointer;
+  font: inherit; border: 1px solid var(--border); background: transparent;
+  color: var(--fg-m); font-size: 12px; white-space: nowrap;
+  transition: background .12s, color .12s, border-color .12s;
+}
+button:hover { background: var(--bg-head); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary:hover { opacity: .88; }
+.btn-sm { padding: 3px 8px; font-size: 11px; }
+.btn-danger { color: var(--c-bad); border-color: transparent; }
+.btn-danger:hover { background: var(--c-bad-bg); border-color: var(--c-bad); }
+.filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ── layout ── */
+main { padding: 16px; }
+
+/* ── toolbar ── */
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+#search { flex: 1 1 160px; padding: 5px 10px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--bg-card); color: var(--fg);
+  font: inherit; font-size: 13px; min-width: 0; }
+#search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* ── table ── */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+table { width: 100%; border-collapse: collapse; min-width: 760px; background: var(--bg-card); }
+thead th {
+  background: var(--bg-head); color: var(--fg-m); font-size: 11px;
+  font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  padding: 7px 10px; text-align: left; white-space: nowrap; position: sticky; top: 41px; z-index: 5;
+}
+td { padding: 8px 10px; border-top: 1px solid var(--border); vertical-align: middle; }
+tr:hover td { background: var(--bg-head); }
+.empty-row td { text-align: center; color: var(--fg-m); padding: 24px; }
+
+.crash-name { font-family: monospace; font-size: 12px; font-weight: 500; word-break: break-all; }
+.crash-hash { font-family: monospace; font-size: 10px; color: var(--fg-m); }
+.note-cell { font-size: 12px; color: var(--fg-m); max-width: 240px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+
+/* ── badges ── */
+.badge { display: inline-block; font-size: 11px; font-weight: 500;
+  padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
+.b-fixed   { color: var(--c-fixed);   background: var(--c-fixed-bg); }
+.b-partial { color: var(--c-partial); background: var(--c-partial-bg); }
+.b-bad     { color: var(--c-bad);     background: var(--c-bad-bg); }
+.b-pend    { color: var(--c-pend);    background: var(--c-pend-bg); }
+.b-na      { color: var(--c-na);      background: var(--c-na-bg); }
+.b-ideco   { color: var(--c-ideco);   background: var(--c-ideco-bg); }
+.b-q       { color: var(--fg-m);      background: var(--bg-head); }
+
+.repro-yes  { color: var(--c-fixed);   background: var(--c-fixed-bg); }
+.repro-no   { color: var(--c-na);      background: var(--c-na-bg); }
+.repro-part { color: var(--c-partial); background: var(--c-partial-bg); }
+
+/* ── summary pills ── */
+.summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.sum-pill { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;
+  border: 1px solid var(--border); background: var(--bg-card); cursor: pointer; }
+.sum-pill span { font-family: monospace; font-weight: 700; }
+.sum-pill.active { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ── modal ── */
+.overlay { display: none; position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,.45); align-items: center; justify-content: center; padding: 16px; }
+.overlay.open { display: flex; }
+.modal { background: var(--bg-card); border-radius: 10px; border: 1px solid var(--border);
+  width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto; padding: 20px; }
+.modal h2 { margin: 0 0 16px; font-size: 15px; }
+.modal-close { float: right; margin-top: -2px; }
+
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.form-grid .span2 { grid-column: span 2; }
+label { display: block; font-size: 12px; font-weight: 600; color: var(--fg-m);
+  margin-bottom: 3px; text-transform: uppercase; letter-spacing: .04em; }
+input[type=text], textarea, select {
+  width: 100%; padding: 7px 9px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--bg); color: var(--fg);
+  font: inherit; font-size: 13px;
+}
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+textarea { resize: vertical; min-height: 60px; }
+.form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* ── import modal ── */
+.import-result { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius);
+  background: var(--bg-head); font-size: 13px; display: none; }
+.import-result.show { display: block; }
+
+/* ── toast ── */
+#toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(60px);
+  background: #1a1917; color: #fff; padding: 8px 18px; border-radius: 20px;
+  font-size: 13px; z-index: 200; opacity: 0; transition: transform .2s, opacity .2s; pointer-events: none; }
+#toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>KMSAN Crash Portal &nbsp;<em>linux-lvc</em></h1>
+  <div class="hbar">
+    <button onclick="openImport()">⬆ Импорт из workdir</button>
+    <button class="btn-primary" onclick="openAdd()">+ Добавить</button>
+  </div>
+</header>
+
+<main>
+
+<div class="summary" id="summary"></div>
+
+<div class="toolbar">
+  <input id="search" type="search" placeholder="Поиск по описанию, подсистеме…" oninput="render()">
+  <button class="filter-btn" data-f="all" onclick="setFilter('all')">Все</button>
+  <button class="filter-btn" data-f="repro" onclick="setFilter('repro')">Есть репро</button>
+  <button class="filter-btn" data-f="unfixed" onclick="setFilter('unfixed')">Не исправлено</button>
+  <button class="filter-btn" data-f="needs-work" onclick="setFilter('needs-work')">Нужна работа</button>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead>
+  <tr>
+    <th>Краш</th>
+    <th>Подсистема</th>
+    <th>Репро</th>
+    <th>5.10</th>
+    <th>6.1</th>
+    <th>6.12</th>
+    <th>Примечания</th>
+    <th></th>
+  </tr>
+</thead>
+<tbody id="tbody"></tbody>
+</table>
+</div>
+
+</main>
+
+<!-- Add/Edit modal -->
+<div class="overlay" id="editOverlay" onclick="if(event.target===this)closeEdit()">
+<div class="modal">
+  <h2 id="editTitle">Добавить краш <button class="btn btn-sm modal-close" onclick="closeEdit()">✕</button></h2>
+  <form id="editForm" onsubmit="submitEdit(event)">
+  <div class="form-grid">
+    <div class="span2">
+      <label>Описание краша</label>
+      <input type="text" id="f-desc" required placeholder="KMSAN: uninit-value in foo_bar">
+    </div>
+    <div>
+      <label>Подсистема</label>
+      <input type="text" id="f-sub" placeholder="net/mac80211">
+    </div>
+    <div>
+      <label>Репродюсер</label>
+      <select id="f-repro">
+        <option value="none">нет</option>
+        <option value="repro0">repro0 (в процессе)</option>
+        <option value="prog">prog (syz)</option>
+        <option value="C">C-репро</option>
+        <option value="prog+C">prog + C</option>
+      </select>
+    </div>
+    <div>
+      <label>5.10-lvc</label>
+      <select id="f-510"><option value="?">?</option><option value="fixed">✓ исправлено</option><option value="partial">⚠ частично</option><option value="backport">→ бэкпорт</option><option value="bad">✗ не исправлено</option><option value="na">N/A</option><option value="ideco">Ideco-баг</option></select>
+    </div>
+    <div>
+      <label>6.1-lvc</label>
+      <select id="f-61"><option value="?">?</option><option value="fixed">✓ исправлено</option><option value="partial">⚠ частично</option><option value="backport">→ бэкпорт</option><option value="bad">✗ не исправлено</option><option value="na">N/A</option><option value="ideco">Ideco-баг</option></select>
+    </div>
+    <div>
+      <label>6.12-lvc</label>
+      <select id="f-612"><option value="?">?</option><option value="fixed">✓ исправлено</option><option value="partial">⚠ частично</option><option value="backport">→ бэкпорт</option><option value="bad">✗ не исправлено</option><option value="na">N/A</option><option value="ideco">Ideco-баг</option></select>
+    </div>
+    <div class="span2">
+      <label>Примечания (коммит, ссылка, описание)</label>
+      <textarea id="f-note" placeholder="fix: abc123def456 net: fix NULL in foo&#10;https://syzkaller.appspot.com/bug?…"></textarea>
+    </div>
+    <div>
+      <label>Хеш crashdir (необязательно)</label>
+      <input type="text" id="f-hash" placeholder="091c5c48bff4…">
+    </div>
+  </div>
+  <div class="form-actions">
+    <button type="button" onclick="closeEdit()">Отмена</button>
+    <button type="submit" class="btn-primary" id="editSubmitBtn">Добавить</button>
+  </div>
+  </form>
+</div>
+</div>
+
+<!-- Import modal -->
+<div class="overlay" id="importOverlay" onclick="if(event.target===this)closeImport()">
+<div class="modal">
+  <h2>Импорт из syzkaller workdir <button class="btn btn-sm modal-close" onclick="closeImport()">✕</button></h2>
+  <p style="font-size:13px;color:var(--fg-m);margin:0 0 12px">
+    Укажи путь к директории <code>workdir</code> или <code>workdir/crashes</code> от syzkaller.
+    Шум (SYZFAIL, corrupted, lost connection) пропускается автоматически.
+    Уже добавленные краши (по хешу) не дублируются.
+  </p>
+  <label>Путь</label>
+  <input type="text" id="import-path" placeholder="/home/petr/u/syzkaller-lvc/workdir"
+    value="/home/petr/u/syzkaller-lvc/workdir">
+  <div class="import-result" id="import-result"></div>
+  <div class="form-actions">
+    <button type="button" onclick="closeImport()">Закрыть</button>
+    <button class="btn-primary" onclick="doImport()">Импортировать</button>
+  </div>
+</div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API = '';   // same origin
+let crashes = [];
+let filter = 'all';
+let editId = null;
+
+const STATUS_MAP = {
+  fixed:   ['b-fixed',   '✓'],
+  partial: ['b-partial', '⚠'],
+  backport:['b-pend',    '→ бэкпорт'],
+  bad:     ['b-bad',     '✗'],
+  na:      ['b-na',      'N/A'],
+  ideco:   ['b-ideco',   'Ideco'],
+  '?':     ['b-q',       '?'],
+};
+
+const REPRO_MAP = {
+  'prog+C': ['repro-yes',  'prog+C'],
+  prog:     ['repro-yes',  'prog'],
+  C:        ['repro-yes',  'C'],
+  repro0:   ['repro-part', 'repro0'],
+  none:     ['repro-no',   'нет'],
+};
+
+function badge(status) {
+  const [cls, label] = STATUS_MAP[status] || STATUS_MAP['?'];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+function reproBadge(r) {
+  const [cls, label] = REPRO_MAP[r] || REPRO_MAP['none'];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+async function fetchCrashes() {
+  const r = await fetch(`${API}/api/crashes`);
+  crashes = await r.json();
+  renderSummary();
+  render();
+}
+
+function renderSummary() {
+  const counts = { fixed: 0, backport: 0, bad: 0, ideco: 0, '?': 0 };
+  crashes.forEach(c => {
+    const s612 = c.status_612 || '?';
+    if (s612 === 'fixed') counts.fixed++;
+    else if (s612 === 'backport' || s612 === 'partial') counts.backport++;
+    else if (s612 === 'bad') counts.bad++;
+    else if (s612 === 'ideco') counts.ideco++;
+    else counts['?']++;
+  });
+  const total = crashes.length;
+  document.getElementById('summary').innerHTML = `
+    <span class="sum-pill"><span style="color:var(--c-fixed)">${counts.fixed}</span> исправлено в 6.12</span>
+    <span class="sum-pill"><span style="color:var(--c-pend)">${counts.backport}</span> нужен бэкпорт</span>
+    <span class="sum-pill"><span style="color:var(--c-bad)">${counts.bad}</span> не исправлено</span>
+    <span class="sum-pill"><span style="color:var(--c-ideco)">${counts.ideco}</span> Ideco</span>
+    <span class="sum-pill"><span style="color:var(--fg-m)">${counts['?']}</span> неизвестно</span>
+    <span class="sum-pill"><span style="color:var(--fg-m)">${total}</span> всего</span>
+  `;
+}
+
+function setFilter(f) {
+  filter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+  render();
+}
+
+function render() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const tbody = document.getElementById('tbody');
+
+  let rows = crashes.filter(c => {
+    if (q && !(c.description + ' ' + c.subsystem + ' ' + c.note).toLowerCase().includes(q)) return false;
+    if (filter === 'repro') return c.repro && c.repro !== 'none';
+    if (filter === 'unfixed') return c.status_612 === 'bad';
+    if (filter === 'needs-work') return ['bad', 'backport', '?'].includes(c.status_612);
+    return true;
+  });
+
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">Ничего не найдено</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(c => `
+    <tr>
+      <td>
+        <div class="crash-name">${esc(c.description)}</div>
+        ${c.hash ? `<div class="crash-hash">${c.hash.slice(0,12)}</div>` : ''}
+      </td>
+      <td style="font-size:12px;white-space:nowrap">${esc(c.subsystem||'')}</td>
+      <td>${reproBadge(c.repro||'none')}</td>
+      <td>${badge(c.status_510||'?')}</td>
+      <td>${badge(c.status_61||'?')}</td>
+      <td>${badge(c.status_612||'?')}</td>
+      <td class="note-cell" title="${esc(c.note||'')}">${esc(c.note||'')}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-sm" onclick="openEdit('${c.id}')">✎</button>
+        <button class="btn btn-sm btn-danger" onclick="del('${c.id}')">✕</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Add / Edit ──
+function openAdd() {
+  editId = null;
+  document.getElementById('editTitle').innerHTML = 'Добавить краш <button class="btn btn-sm modal-close" onclick="closeEdit()">✕</button>';
+  document.getElementById('editSubmitBtn').textContent = 'Добавить';
+  document.getElementById('editForm').reset();
+  document.getElementById('editOverlay').classList.add('open');
+}
+
+function openEdit(id) {
+  const c = crashes.find(x => x.id === id);
+  if (!c) return;
+  editId = id;
+  document.getElementById('editTitle').innerHTML = 'Редактировать <button class="btn btn-sm modal-close" onclick="closeEdit()">✕</button>';
+  document.getElementById('editSubmitBtn').textContent = 'Сохранить';
+  document.getElementById('f-desc').value  = c.description || '';
+  document.getElementById('f-sub').value   = c.subsystem   || '';
+  document.getElementById('f-repro').value = c.repro       || 'none';
+  document.getElementById('f-510').value   = c.status_510  || '?';
+  document.getElementById('f-61').value    = c.status_61   || '?';
+  document.getElementById('f-612').value   = c.status_612  || '?';
+  document.getElementById('f-note').value  = c.note        || '';
+  document.getElementById('f-hash').value  = c.hash        || '';
+  document.getElementById('editOverlay').classList.add('open');
+}
+
+function closeEdit() {
+  document.getElementById('editOverlay').classList.remove('open');
+}
+
+async function submitEdit(e) {
+  e.preventDefault();
+  const payload = {
+    description: document.getElementById('f-desc').value.trim(),
+    subsystem:   document.getElementById('f-sub').value.trim(),
+    repro:       document.getElementById('f-repro').value,
+    status_510:  document.getElementById('f-510').value,
+    status_61:   document.getElementById('f-61').value,
+    status_612:  document.getElementById('f-612').value,
+    note:        document.getElementById('f-note').value.trim(),
+    hash:        document.getElementById('f-hash').value.trim(),
+  };
+  if (editId) {
+    await fetch(`${API}/api/crashes/${editId}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    toast('Сохранено');
+  } else {
+    await fetch(`${API}/api/crashes`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    toast('Добавлено');
+  }
+  closeEdit();
+  fetchCrashes();
+}
+
+async function del(id) {
+  const c = crashes.find(x => x.id === id);
+  if (!c) return;
+  if (!confirm(`Удалить краш?\n${c.description}`)) return;
+  await fetch(`${API}/api/crashes/${id}`, {method:'DELETE'});
+  toast('Удалено');
+  fetchCrashes();
+}
+
+// ── Import ──
+function openImport() { document.getElementById('importOverlay').classList.add('open'); }
+function closeImport() {
+  document.getElementById('importOverlay').classList.remove('open');
+  document.getElementById('import-result').classList.remove('show');
+}
+
+async function doImport() {
+  const workdir = document.getElementById('import-path').value.trim();
+  const res = document.getElementById('import-result');
+  res.textContent = 'Импортируем…';
+  res.className = 'import-result show';
+  try {
+    const r = await fetch(`${API}/api/import`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({workdir})
+    });
+    const data = await r.json();
+    if (!r.ok) { res.textContent = 'Ошибка: ' + data.error; return; }
+    res.innerHTML = `<b>Готово:</b> добавлено ${data.imported}, пропущено (дубли/шум): ${data.skipped}.<br>
+      Статусы веток нужно проставить вручную.`;
+    fetchCrashes();
+  } catch(e) {
+    res.textContent = 'Ошибка соединения: ' + e.message;
+  }
+}
+
+// ── Toast ──
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+// ── Init ──
+setFilter('all');
+fetchCrashes();
+</script>
+</body>
+</html>
